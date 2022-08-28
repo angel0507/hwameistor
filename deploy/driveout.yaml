@@ -1,0 +1,43 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: driveout
+  namespace: hwameistor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: driveout
+  template:
+    metadata:
+      labels:
+        app: driveout
+    spec:
+      serviceAccount: dce-uds-admin
+      priorityClassName: system-cluster-critical
+      containers:
+        - name: main
+          image: ghcr.io/hwameistor/driveout:99.9-dev
+          imagePullPolicy: Always
+          args:
+            - --debug=true
+            - --storage-server-service-name=dce-uds-storage-server
+            - --storage-server-service-namespace=$(MY_NAMESPACE)
+            - --storage-server-service-port=80
+            - --failover-cooldown-duration-minutes=15
+          resources:
+            limits:
+              memory: 50Mi
+              cpu: 100m
+            requests:
+              memory: 50Mi
+              cpu: 100m
+          env:
+            - name: MY_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name

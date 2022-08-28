@@ -208,6 +208,7 @@ func (lr *localRegistry) rebuildRegistryReplicas() error {
 	lr.logger.Debug("rebuildRegistryReplicas start")
 
 	replicas, err := lr.lm.PoolManager().GetReplicas()
+	lr.logger.Debug("rebuildRegistryReplicas replicas = %v", replicas)
 	if err != nil {
 		lr.logger.WithError(err).Fatal("Failed to ConstructReplicas")
 		return err
@@ -235,6 +236,8 @@ func (lr *localRegistry) VolumeReplicas() map[string]*apisv1alpha1.LocalVolumeRe
 }
 
 func (lr *localRegistry) HasVolumeReplica(vr *apisv1alpha1.LocalVolumeReplica) bool {
+	lr.logger.Debug("HasVolumeReplica vr.Spec.VolumeName = %v, lr.replicas = %v", vr.Spec.VolumeName, lr.replicas)
 	_, has := lr.replicas[vr.Spec.VolumeName]
+	lr.logger.Debug("HasVolumeReplica has = %v", has)
 	return has
 }

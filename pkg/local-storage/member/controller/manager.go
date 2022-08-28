@@ -224,6 +224,11 @@ func (m *manager) ReconcileVolumeGroupConvert(lvgconvert *apisv1alpha1.LocalVolu
 	m.volumeGroupConvertTaskQueue.Add(lvgconvert.Namespace + "/" + lvgconvert.Name)
 }
 
+// ReconcileNodeDriveout reconciles NodeDriveout CRD for any nodeDriveout resource change
+func (m *manager) ReconcileNodeDriveout(nodeDriveout *apisv1alpha1.NodeDriveout) {
+	m.volumeGroupConvertTaskQueue.Add(nodeDriveout.Namespace + "/" + nodeDriveout.Name)
+}
+
 func (m *manager) handleK8sNodeUpdatedEvent(oldObj, newObj interface{}) {
 	newNode, _ := newObj.(*corev1.Node)
 	if _, ok := m.localNodes[newNode.Name]; !ok {

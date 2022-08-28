@@ -10,6 +10,7 @@ import (
 	ldmv1alpha1 "github.com/hwameistor/hwameistor/pkg/apis/hwameistor/local-disk-manager/v1alpha1"
 	apis "github.com/hwameistor/hwameistor/pkg/apis/hwameistor/local-storage"
 	apisv1alpha1 "github.com/hwameistor/hwameistor/pkg/apis/hwameistor/local-storage/v1alpha1"
+	"github.com/hwameistor/hwameistor/pkg/driveout"
 	"github.com/hwameistor/hwameistor/pkg/local-storage/common"
 	"github.com/hwameistor/hwameistor/pkg/local-storage/member/node/diskmonitor"
 	"github.com/hwameistor/hwameistor/pkg/local-storage/member/node/storage"
@@ -58,7 +59,11 @@ type manager struct {
 
 	localDiskTaskQueue *common.TaskQueue
 
+	nodeDriveoutTaskQueue *common.TaskQueue
+
 	configManager *configManager
+
+	ndohandler *driveout.NodeDriveoutHandler
 
 	logger *log.Entry
 
@@ -81,9 +86,11 @@ func New(name string, namespace string, cli client.Client, informersCache runtim
 		volumeReplicaTaskQueue:  common.NewTaskQueue("VolumeReplicaTask", maxRetries),
 		localDiskClaimTaskQueue: common.NewTaskQueue("LocalDiskClaim", maxRetries),
 		localDiskTaskQueue:      common.NewTaskQueue("LocalDisk", maxRetries),
+		nodeDriveoutTaskQueue:   common.NewTaskQueue("nodeDriveoutTask", maxRetries),
 		// healthCheckQueue:        common.NewTaskQueue("HealthCheckTask", maxRetries),
 		diskEventQueue: diskmonitor.NewEventQueue("DiskEvents"),
 		configManager:  configManager,
+		ndohandler:     driveout.NewNodeDriveoutHandler(cli),
 		logger:         log.WithField("Module", "NodeManager"),
 	}, nil
 }
@@ -108,6 +115,8 @@ func (m *manager) Run(stopCh <-chan struct{}) {
 	go diskmonitor.New(m.diskEventQueue).Run(stopCh)
 
 	go m.configManager.Run(stopCh)
+
+	go m.startNodeDriveoutTaskWorker(stopCh)
 
 	// move disk health check out, as a separate process
 	//go healths.NewDiskHealthManager(m.name, m.apiClient).Run(stopCh)

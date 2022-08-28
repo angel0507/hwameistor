@@ -55,6 +55,7 @@ func (mgr *localVolumeReplicaManager) CreateVolumeReplica(replica *apisv1alpha1.
 func (mgr *localVolumeReplicaManager) DeleteVolumeReplica(replica *apisv1alpha1.LocalVolumeReplica) error {
 	mgr.logger.Debugf("Deleting volume replica %s.", replica.Spec.VolumeName)
 
+	mgr.logger.Debugf("DeleteVolumeReplica mgr.registry.VolumeReplicas() = %v, replica = %v", mgr.registry.VolumeReplicas(), replica)
 	if err := mgr.volumeValidator.canDeleteVolumeReplica(replica, mgr.registry); err != nil {
 		if err == ErrorReplicaNotFound {
 			mgr.logger.Infof("Volume replica %s not found. Skipping.", replica.Spec.VolumeName)
@@ -64,6 +65,7 @@ func (mgr *localVolumeReplicaManager) DeleteVolumeReplica(replica *apisv1alpha1.
 		return err
 	}
 
+	mgr.logger.Debugf("DeleteVolumeReplica replica.Status.StoragePath = %v, replica.Status.DevicePath = %v", replica.Status.StoragePath, replica.Status.DevicePath)
 	if err := mgr.cmdExec.DeleteVolumeReplica(replica); err != nil {
 		mgr.logger.WithError(err).Error("Failed to exec replica delete")
 		return err
