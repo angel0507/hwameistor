@@ -52,6 +52,7 @@ func (lr *localRegistry) resetPools() {
 }
 
 func (lr *localRegistry) resetReplicas() {
+	lr.logger.Debug("Start to reset replicas")
 	lr.replicas = make(map[string]*apisv1alpha1.LocalVolumeReplica)
 }
 
@@ -213,13 +214,9 @@ func (lr *localRegistry) rebuildRegistryReplicas() error {
 		lr.logger.WithError(err).Fatal("Failed to ConstructReplicas")
 		return err
 	}
-	if len(lr.replicas) == 0 {
-		lr.resetReplicas()
-	}
-	if len(lr.replicas) > 0 {
+	if len(replicas) > 0 {
 		lr.replicas = replicas
 	}
-
 	return nil
 }
 
@@ -232,12 +229,23 @@ func (lr *localRegistry) Pools() map[string]*apisv1alpha1.LocalPool {
 }
 
 func (lr *localRegistry) VolumeReplicas() map[string]*apisv1alpha1.LocalVolumeReplica {
+	lr.showReplicaOnHost()
 	return lr.replicas
 }
 
 func (lr *localRegistry) HasVolumeReplica(vr *apisv1alpha1.LocalVolumeReplica) bool {
 	lr.logger.Debug("HasVolumeReplica vr.Spec.VolumeName = %v, lr.replicas = %v", vr.Spec.VolumeName, lr.replicas)
+
+	lr.showReplicaOnHost()
 	_, has := lr.replicas[vr.Spec.VolumeName]
 	lr.logger.Debug("HasVolumeReplica has = %v", has)
 	return has
+}
+
+// showReplicaOnHost debug func for now
+func (lr *localRegistry) showReplicaOnHost() {
+	lr.logger.WithFields(log.Fields{"node": lr.lm.NodeConfig().Name, "count": len(lr.replicas)}).Info("Show existing volumes on host")
+	for volume, _ := range lr.replicas {
+		lr.logger.WithField("volume", volume).Infof("Existing volume replica on host")
+	}
 }
