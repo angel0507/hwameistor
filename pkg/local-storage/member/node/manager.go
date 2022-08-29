@@ -397,3 +397,8 @@ func (m *manager) handleNodeDelete(obj interface{}) {
 		m.logger.WithFields(log.Fields{"node": nodeToRecovery.GetName()}).WithError(err).Error("Failed to rebuild VolumeReplica")
 	}
 }
+
+// ReconcileNodeDriveout reconciles NodeDriveout CRD for any nodeDriveout resource change
+func (m *manager) ReconcileNodeDriveout(nodeDriveout *apisv1alpha1.NodeDriveout) {
+	m.nodeDriveoutTaskQueue.Add(nodeDriveout.Name)
+}

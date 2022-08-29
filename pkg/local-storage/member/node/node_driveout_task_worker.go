@@ -3,8 +3,6 @@ package node
 import (
 	"context"
 	"fmt"
-	"strings"
-
 	log "github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -40,15 +38,8 @@ func (m *manager) processNodeDriveout(ndNamespacedName string) error {
 	logCtx := m.logger.WithFields(log.Fields{"NodeDriveout": ndNamespacedName})
 	logCtx.Debug("Working on a NodeDriveout task")
 
-	splitRes := strings.Split(ndNamespacedName, "/")
-	var ns, ndName string
-	if len(splitRes) >= 2 {
-		ns = splitRes[0]
-		ndName = splitRes[1]
-	}
-
 	nodeDriveout := &apisv1alpha1.NodeDriveout{}
-	if err := m.apiClient.Get(context.TODO(), types.NamespacedName{Namespace: ns, Name: ndName}, nodeDriveout); err != nil {
+	if err := m.apiClient.Get(context.TODO(), types.NamespacedName{Name: ndNamespacedName}, nodeDriveout); err != nil {
 		if !errors.IsNotFound(err) {
 			logCtx.WithError(err).Error("Failed to get NodeDriveout from cache")
 			return err
@@ -61,7 +52,7 @@ func (m *manager) processNodeDriveout(ndNamespacedName string) error {
 		return nil
 	}
 
-	//ndohandler := m.ndohandler.SetNodeDriveout(*nodeDriveout)
+	m.ndohandler = m.ndohandler.SetNodeDriveout(*nodeDriveout)
 	ndohandler, err := m.ndohandler.Refresh()
 	if err != nil {
 		log.Error(err, "DriveoutStatus Refresh failed")
@@ -115,7 +106,7 @@ func (m *manager) processNodeDriveout(ndNamespacedName string) error {
 		return nil
 
 	case apisv1alpha1.Driveout_Failed:
-		warnMsg := fmt.Sprintf("No Hwameistor Svc on the Node %v !", nodeDriveout.Spec.NodeName)
+		warnMsg := fmt.Sprintf("No Hwameistor Svc or No Hwameistor Volumes on the Node %v !", nodeDriveout.Spec.NodeName)
 		err := m.ndohandler.SetMsg(warnMsg)
 		if err != nil {
 			log.Error(err, "DriveoutStatus Driveout_Failed SetMsg failed")

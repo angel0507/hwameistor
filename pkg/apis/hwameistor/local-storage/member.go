@@ -71,8 +71,6 @@ type ControllerManager interface {
 	ReconcileVolumeConvert(convert *apisv1alpha1.LocalVolumeConvert)
 
 	ReconcileVolumeGroupConvert(lvgconvert *apisv1alpha1.LocalVolumeGroupConvert)
-
-	ReconcileNodeDriveout(nodeDriveout *apisv1alpha1.NodeDriveout)
 }
 
 // NodeManager interface
@@ -85,4 +83,6 @@ type NodeManager interface {
 	TakeVolumeReplicaTaskAssignment(vol *apisv1alpha1.LocalVolume)
 
 	ReconcileVolumeReplica(replica *apisv1alpha1.LocalVolumeReplica)
+
+	ReconcileNodeDriveout(nodeDriveout *apisv1alpha1.NodeDriveout)
 }

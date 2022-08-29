@@ -94,6 +94,8 @@ func (ndHandler *NodeDriveoutHandler) Refresh() (*NodeDriveoutHandler, error) {
 	if err != nil {
 		return ndHandler, err
 	}
+	log.Debugf("NodeDriveoutHandler Refresh() ndHandler = %v, ndHandler == nil = %v, *rd.DeepCopy() = %v", ndHandler, ndHandler == nil, *rd.DeepCopy())
+
 	ndHandler.SetNodeDriveout(*rd.DeepCopy())
 	return ndHandler, nil
 }

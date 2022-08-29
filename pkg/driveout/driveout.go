@@ -520,7 +520,7 @@ func (fa *driveoutAssistant) getAssociatedVolumes(pod *corev1.Pod) []*apisv1alph
 			fa.logger.WithFields(log.Fields{"namespace": pod.Namespace, "pvc": vol.PersistentVolumeClaim.ClaimName}).WithError(err).Error("Failed to fetch PVC")
 			continue
 		}
-		lv, err := fa.constructLocalVolumeForMigrate(pvc)
+		lv, err := fa.constructLocalVolumeForMigrate(pvc, pod.Spec.NodeName)
 		if err == nil {
 			lvs = append(lvs, lv)
 		}
@@ -529,7 +529,7 @@ func (fa *driveoutAssistant) getAssociatedVolumes(pod *corev1.Pod) []*apisv1alph
 	return lvs
 }
 
-func (fa *driveoutAssistant) constructLocalVolumeForMigrate(pvc *corev1.PersistentVolumeClaim) (*apisv1alpha1.LocalVolume, error) {
+func (fa *driveoutAssistant) constructLocalVolumeForMigrate(pvc *corev1.PersistentVolumeClaim, nodeName string) (*apisv1alpha1.LocalVolume, error) {
 	lv := apisv1alpha1.LocalVolume{}
 
 	if err := fa.apiClient.Get(context.TODO(), types.NamespacedName{Name: pvc.Spec.VolumeName}, &lv); err != nil {
@@ -541,6 +541,24 @@ func (fa *driveoutAssistant) constructLocalVolumeForMigrate(pvc *corev1.Persiste
 		return &lv, err
 	}
 
+	// list all the LocalVolumeReplicas by Volume
+	replicas, err := fa.getReplicasForVolume(pvc.Spec.VolumeName)
+	if err != nil {
+		log.WithError(err).Error("Failed to list LocalVolumeReplica")
+		return &lv, err
+	}
+
+	var hasReplicas bool
+	for _, replica := range replicas {
+		if replica.Spec.NodeName == nodeName {
+			hasReplicas = true
+			break
+		}
+	}
+
+	if !hasReplicas {
+		return &lv, errors.NewBadRequest("TobeDrivedout nodeName has not replicas!")
+	}
 	lv.Name = pvc.Spec.VolumeName
 	lv.Namespace = pvc.Namespace
 

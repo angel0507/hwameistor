@@ -130,7 +130,6 @@ func (r *ReconcileNodeDriveout) Reconcile(request reconcile.Request) (reconcile.
 			logr.Error(err, "DriveoutStage_StopSvc UpdateNodeDriveoutStatus Driveout_WaitStopSvc failed")
 			return reconcile.Result{Requeue: true}, nil
 		}
-		return reconcile.Result{Requeue: true}, nil
 
 	case apisv1alpha1.DriveoutStage_DrivingOut:
 		logr.Debug("DriveoutStage_DrivingOut ndohandler.NodeDriveoutStage() = %v, ndohandler.NodeDriveoutStatus() = %v", ndohandler.NodeDriveoutStage(), ndohandler.NodeDriveoutStatus())
@@ -139,7 +138,6 @@ func (r *ReconcileNodeDriveout) Reconcile(request reconcile.Request) (reconcile.
 			logr.Error(err, "DriveoutStage_DrivingOut UpdateNodeDriveoutStatus Driveout_WaitDriveOut failed")
 			return reconcile.Result{Requeue: true}, nil
 		}
-		return reconcile.Result{Requeue: true}, nil
 
 	case apisv1alpha1.DriveoutStage_StartSvc:
 		logr.Debug("DriveoutStage_StartSvc ndohandler.NodeDriveoutStage() = %v, ndohandler.NodeDriveoutStatus() = %v", ndohandler.NodeDriveoutStage(), ndohandler.NodeDriveoutStatus())
@@ -148,7 +146,6 @@ func (r *ReconcileNodeDriveout) Reconcile(request reconcile.Request) (reconcile.
 			logr.Error(err, "DriveoutStage_StartSvc UpdateNodeDriveoutStatus Driveout_WaitStartSvc failed")
 			return reconcile.Result{Requeue: true}, nil
 		}
-		return reconcile.Result{Requeue: true}, nil
 
 	case apisv1alpha1.DriveoutStage_Succeed:
 		logr.Debug("DriveoutStage_Succeed ndohandler.NodeDriveoutStage() = %v, ndohandler.NodeDriveoutStatus() = %v", ndohandler.NodeDriveoutStage(), ndohandler.NodeDriveoutStatus())
@@ -159,13 +156,13 @@ func (r *ReconcileNodeDriveout) Reconcile(request reconcile.Request) (reconcile.
 			logr.Error(err, "DriveoutStage_Failed UpdateNodeDriveoutStatus Driveout_Failed failed")
 			return reconcile.Result{Requeue: true}, nil
 		}
-		return reconcile.Result{Requeue: true}, nil
 
 	default:
 		logr.Error(err, "Invalid DriveoutStage")
 	}
 
-	r.storageMember.Controller().ReconcileNodeDriveout(instance)
+	logr.Debug("Reconcile ReconcileNodeDriveout start ... ")
+	r.storageMember.Node().ReconcileNodeDriveout(instance)
 
 	return reconcile.Result{}, nil
 }
