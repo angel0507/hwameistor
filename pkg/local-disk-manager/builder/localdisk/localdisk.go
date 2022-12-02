@@ -7,7 +7,7 @@ import (
 	"github.com/hwameistor/hwameistor/pkg/local-disk-manager/disk/manager"
 )
 
-// Builder for LocalDisk resource
+// Builder for localDisk resource
 type Builder struct {
 	disk *v1alpha1.LocalDisk
 	errs []error
@@ -62,6 +62,20 @@ func (builder *Builder) SetupRaidInfo(raid manager.RaidInfo) *Builder {
 	return builder
 }
 
+func (builder *Builder) SetupSmartInfo(smart manager.SmartInfo) *Builder {
+	if builder.errs != nil {
+		return builder
+	}
+	
+	if smart.OverallHealthPassed {
+		builder.disk.Spec.SmartInfo.OverallHealth = v1alpha1.AssessPassed
+	} else {
+		builder.disk.Spec.SmartInfo.OverallHealth = v1alpha1.AssessFailed
+	}
+
+	return builder
+}
+
 func (builder *Builder) SetupUUID(uuid string) *Builder {
 	if builder.errs != nil {
 		return builder
@@ -99,9 +113,9 @@ func (builder *Builder) GenerateStatus() *Builder {
 		return builder
 	}
 	if builder.disk.Spec.HasPartition {
-		builder.disk.Status.State = v1alpha1.LocalDiskInUse
+		builder.disk.Status.State = v1alpha1.LocalDiskBound
 	} else {
-		builder.disk.Status.State = v1alpha1.LocalDiskUnclaimed
+		builder.disk.Status.State = v1alpha1.LocalDiskAvailable
 	}
 	return builder
 }

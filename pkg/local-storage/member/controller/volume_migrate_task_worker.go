@@ -139,6 +139,13 @@ func (m *manager) volumeMigrateSubmit(migrate *apisv1alpha1.LocalVolumeMigrate, 
 		return fmt.Errorf("volume still in use")
 	}
 
+	if !vol.Spec.Convertible && vol.Status.PublishedRawBlock {
+		logCtx.Warning("Can't migrate the unconvertable raw block volume")
+		migrate.Status.Message = "Can't migrate the unconvertable raw block volume"
+		m.apiClient.Status().Update(ctx, migrate)
+		return fmt.Errorf("can't migrate the unconvertable raw block volume")
+	}
+
 	if len(migrate.Status.TargetNode) == 0 {
 		logCtx.Debug("Selecting the target node for the migration")
 		tgtNodeName, err := m.selectMigrateTargetNode(migrate, lvg)
@@ -203,6 +210,14 @@ func (m *manager) volumeMigrateAddReplica(migrate *apisv1alpha1.LocalVolumeMigra
 
 	ctx := context.TODO()
 
+	lsNode := &apisv1alpha1.LocalStorageNode{}
+	if err := m.apiClient.Get(ctx, types.NamespacedName{Name: migrate.Status.TargetNode}, lsNode); err != nil {
+		logCtx.WithError(err).Error("Failed to fetch LocalStorageNode")
+		migrate.Status.Message = "Failed to get LocalStorageNode"
+		m.apiClient.Status().Update(ctx, migrate)
+		return err
+	}
+
 	volList := []*apisv1alpha1.LocalVolume{vol}
 	if migrate.Spec.MigrateAllVols {
 		vols, err := m.getAllVolumesInGroup(lvg)
@@ -227,6 +242,14 @@ func (m *manager) volumeMigrateAddReplica(migrate *apisv1alpha1.LocalVolumeMigra
 			continue
 		}
 		volList[i].Spec.ReplicaNumber++
+		conf, err := m.volumeScheduler.ConfigureVolumeOnAdditionalNodes(volList[i], []*apisv1alpha1.LocalStorageNode{lsNode})
+		if err != nil {
+			logCtx.WithField("volume", volList[i].Name).WithError(err).Error("Failed to configure LocalVolume")
+			migrate.Status.Message = fmt.Sprintf("Failed to configure LocalVolume %s", volList[i].Name)
+			m.apiClient.Status().Update(ctx, migrate)
+			return err
+		}
+		volList[i].Spec.Config = conf
 		if err := m.apiClient.Update(ctx, volList[i]); err != nil {
 			logCtx.WithField("LocalVolume", volList[i].Name).WithError(err).Error("Failed to add a new replica to the volume")
 			migrate.Status.Message = fmt.Sprintf("Failed to migrate volume %s", volList[i].Name)
@@ -607,4 +630,11 @@ func generateJobName(mName string, pvcName string) string {
 		pvcName = pvcName[:25]
 	}
 	return fmt.Sprintf("%s-datacopy-%s", mName, pvcName)
+}
+
+func (m *manager) rclonePodGC(pod *corev1.Pod) error {
+	if pod.Namespace == m.namespace && pod.Labels["app"] == datacopy.RcloneJobLabelApp && len(pod.OwnerReferences) == 0 && pod.Status.Phase == corev1.PodSucceeded {
+		return m.apiClient.Delete(context.TODO(), pod)
+	}
+	return nil
 }

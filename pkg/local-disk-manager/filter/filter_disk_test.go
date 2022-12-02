@@ -1,13 +1,15 @@
 package filter
 
 import (
+	"testing"
+	"time"
+
 	"github.com/hwameistor/hwameistor/pkg/apis/hwameistor/v1alpha1"
 	"github.com/hwameistor/hwameistor/pkg/local-disk-manager/utils/sys"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
-	"testing"
-	"time"
 )
 
 var (
@@ -24,7 +26,7 @@ var (
 	vendorVMware                 = "VMware"
 	proSCSI                      = "scsi"
 	apiversion                   = "hwameistor.io/v1alpha1"
-	localDiskKind                = "LocalDisk"
+	localDiskKind                = "localDisk"
 	localDiskClaimKind           = "LocalDiskClaim"
 	cap100G                int64 = 100 * 1024 * 1024 * 1024
 	cap10G                 int64 = 10 * 1024 * 1024 * 1024
@@ -43,6 +45,8 @@ func TestLocalDiskFilter(t *testing.T) {
 		WantDiskNode        string
 		WantDevType         string
 		WantDiskNoPartition bool
+		WantReserved        bool
+		WantBoundWithClaim  string
 
 		disk        *v1alpha1.LocalDisk
 		setProperty func(disk *v1alpha1.LocalDisk)
@@ -84,21 +88,21 @@ func TestLocalDiskFilter(t *testing.T) {
 			},
 		},
 		{
-			Description:       "Should return true, Has Unclaimed Disk",
+			Description:       "Should return true, Has Available Disk",
 			WantFilterResult:  true,
 			WantDiskUnclaimed: true,
 			disk:              GenFakeLocalDiskObject(),
 			setProperty: func(disk *v1alpha1.LocalDisk) {
-				disk.Status.State = v1alpha1.LocalDiskUnclaimed
+				disk.Status.State = v1alpha1.LocalDiskAvailable
 			},
 		},
 		{
-			Description:       "Should return false, Has Claimed Disk",
+			Description:       "Should return false, Has Bound Disk",
 			WantFilterResult:  false,
 			WantDiskUnclaimed: true,
 			disk:              GenFakeLocalDiskObject(),
 			setProperty: func(disk *v1alpha1.LocalDisk) {
-				disk.Status.State = v1alpha1.LocalDiskClaimed
+				disk.Status.State = v1alpha1.LocalDiskBound
 			},
 		},
 		{
@@ -160,6 +164,46 @@ func TestLocalDiskFilter(t *testing.T) {
 				disk.Spec.HasPartition = true
 			},
 		},
+		{
+			Description:         "Should return true, Has Reserved",
+			WantFilterResult:    false,
+			WantReserved:        true,
+			disk:                GenFakeLocalDiskObject(),
+			setProperty: func(disk *v1alpha1.LocalDisk) {
+				disk.Spec.Reserved = true
+			},
+		},
+		{
+			Description:         "Should return false, Has Not Reserved",
+			WantFilterResult:    true,
+			WantReserved:        false,
+			disk:                GenFakeLocalDiskObject(),
+			setProperty: func(disk *v1alpha1.LocalDisk) {
+				disk.Spec.Reserved = false
+			},
+		},
+		{
+			Description:      "Should return true, Has Correct ClaimRef Name",
+			WantFilterResult: true,
+			WantBoundWithClaim:  "ClaimFoo",
+			disk:             GenFakeLocalDiskObject(),
+			setProperty: func(disk *v1alpha1.LocalDisk) {
+				disk.Spec.ClaimRef = &v1.ObjectReference{
+					Name: "ClaimFoo",
+				}
+			},
+		},
+		{
+			Description:      "Should return false, Has InCorrect ClaimRef Name",
+			WantFilterResult: true,
+			WantBoundWithClaim: "ClaimFoo",
+			disk:             GenFakeLocalDiskObject(),
+			setProperty: func(disk *v1alpha1.LocalDisk) {
+				disk.Spec.ClaimRef = &v1.ObjectReference{
+					Name: "ClaimBar",
+				}
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -167,7 +211,7 @@ func TestLocalDiskFilter(t *testing.T) {
 			// set test property
 			testCase.setProperty(testCase.disk)
 
-			filter := NewLocalDiskFilter(*testCase.disk)
+			filter := NewLocalDiskFilter(testCase.disk)
 			filter.Init()
 
 			if testCase.WantCapacity > 0 {
@@ -187,11 +231,19 @@ func TestLocalDiskFilter(t *testing.T) {
 			}
 
 			if testCase.WantDiskUnclaimed {
-				filter.Unclaimed()
+				filter.Available()
 			}
 
 			if testCase.WantDiskType != "" {
 				filter.DiskType(testCase.WantDiskType)
+			}
+
+			if testCase.WantReserved {
+				filter.HasNotReserved()
+			}
+
+			if testCase.WantBoundWithClaim != "" {
+				filter.HasBoundWith(testCase.WantBoundWithClaim)
 			}
 
 			if filter.GetTotalResult() != testCase.WantFilterResult {
@@ -236,7 +288,7 @@ func GenFakeLocalDiskObject() *v1alpha1.LocalDisk {
 		State: v1alpha1.LocalDiskActive,
 	}
 
-	Status := v1alpha1.LocalDiskStatus{State: v1alpha1.LocalDiskUnclaimed}
+	Status := v1alpha1.LocalDiskStatus{State: v1alpha1.LocalDiskAvailable}
 
 	ld.TypeMeta = TypeMeta
 	ld.ObjectMeta = ObjectMata

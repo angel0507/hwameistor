@@ -83,6 +83,110 @@ func (s *scheduler) GetNodeCandidates(vols []*apisv1alpha1.LocalVolume) (qualifi
 	return qualifiedNodes
 }
 
+// Allocate schedule right nodes and generate volume config
+func (s *scheduler) Allocate(vol *apisv1alpha1.LocalVolume) (*apisv1alpha1.VolumeConfig, error) {
+	logCtx := s.logger.WithFields(log.Fields{"volume": vol.Name, "spec": vol.Spec})
+	logCtx.Debug("Allocating resources for LocalVolume")
+
+	// will allocate resources for volumes one by one
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	neededNodeNumber := int(vol.Spec.ReplicaNumber)
+	if vol.Spec.Config != nil {
+		neededNodeNumber -= len(vol.Spec.Config.Replicas)
+	}
+
+	var selectedNodes []*apisv1alpha1.LocalStorageNode
+	if neededNodeNumber > 0 {
+		nodes, err := s.resourceCollections.getNodeCandidates(vol)
+		if err != nil {
+			logCtx.WithError(err).Error("Failed to get list of avaliable sorted LocalStorageNodes")
+			return nil, err
+		}
+
+		logCtx.WithFields(log.Fields{"needs": neededNodeNumber, "candidates": len(nodes)}).Debug("try to allocate more replica")
+
+		if len(nodes) < neededNodeNumber {
+			logCtx.Error("No enough LocalStorageNodes available for LocalVolume")
+			return nil, fmt.Errorf("no enough avaiable node")
+		}
+		selectedNodes = nodes
+	}
+
+	return s.ConfigureVolumeOnAdditionalNodes(vol, selectedNodes)
+}
+
+func (s *scheduler) ConfigureVolumeOnAdditionalNodes(vol *apisv1alpha1.LocalVolume, nodes []*apisv1alpha1.LocalStorageNode) (*apisv1alpha1.VolumeConfig, error) {
+	if len(nodes) == 0 && vol.Spec.Config != nil {
+		if vol.Spec.Config.RequiredCapacityBytes < vol.Spec.RequiredCapacityBytes {
+			newConfig := vol.Spec.Config.DeepCopy()
+			newConfig.RequiredCapacityBytes = vol.Spec.RequiredCapacityBytes
+			return newConfig, nil
+		}
+		return vol.Spec.Config, nil
+	}
+
+	// for the same volume, will always get the same ID
+	resID, err := s.resourceCollections.getResourceIDForVolume(vol)
+	if err != nil {
+		return nil, err
+	}
+
+	conf := &apisv1alpha1.VolumeConfig{
+		Version:     1,
+		VolumeName:  vol.Name,
+		Initialized: false,
+		Replicas:    []apisv1alpha1.VolumeReplica{},
+	}
+	if vol.Spec.Config != nil {
+		conf = vol.Spec.Config.DeepCopy()
+		conf.Version++
+	}
+	conf.ResourceID = resID
+	conf.RequiredCapacityBytes = vol.Spec.RequiredCapacityBytes
+	conf.Convertible = vol.Spec.Convertible
+
+	// for a volume, the ID of the replica shall not > vol.Spec.ReplicaNumber
+	// and always set the first replica to primary
+	freeIDs := make([]int, 0, vol.Spec.ReplicaNumber)
+	usedIDs := make(map[int]bool)
+	for _, replica := range conf.Replicas {
+		usedIDs[replica.ID] = true
+	}
+	for id := 1; id <= int(vol.Spec.ReplicaNumber); id++ {
+		if !usedIDs[id] {
+			freeIDs = append(freeIDs, id)
+		}
+	}
+
+	nodeIDIndex := 0
+	nodeIndex := 0
+	for i := len(conf.Replicas); i < int(vol.Spec.ReplicaNumber); i++ {
+		replica := apisv1alpha1.VolumeReplica{
+			ID:       freeIDs[nodeIDIndex],
+			Hostname: nodes[nodeIndex].Spec.HostName,
+			IP:       nodes[nodeIndex].Spec.StorageIP,
+			Primary:  false,
+		}
+		if len(vol.Spec.Accessibility.Nodes) > 0 && replica.Hostname == vol.Spec.Accessibility.Nodes[0] {
+			replica.Primary = true
+		}
+		conf.Replicas = append(conf.Replicas, replica)
+		nodeIDIndex++
+		nodeIndex++
+	}
+	if len(vol.Spec.Accessibility.Nodes) == 0 && len(conf.Replicas) > 0 {
+		conf.Replicas[0].Primary = true
+	}
+	if !vol.Spec.Convertible {
+		// always set to false for non-HA volume
+		conf.Initialized = false
+	}
+
+	return conf, nil
+}
+
 func isLocalVolumeSameClass(lv1 *apisv1alpha1.LocalVolume, lv2 *apisv1alpha1.LocalVolume) bool {
 	if lv1 == nil || lv2 == nil {
 		return true
@@ -127,100 +231,4 @@ func lvString(vols []*apisv1alpha1.LocalVolume) (vs []string) {
 		strings.Join(vs, vol.Name)
 	}
 	return
-}
-
-// Allocate schedule right nodes and generate volume config
-func (s *scheduler) Allocate(vol *apisv1alpha1.LocalVolume) (*apisv1alpha1.VolumeConfig, error) {
-	//logCtx := s.logger.WithFields(log.Fields{"volume": vol.Name, "spec": vol.Spec})
-	logCtx := s.logger.WithFields(log.Fields{"volume": vol.Name, "spec": vol.Spec})
-	logCtx.Debug("Allocating resources for LocalVolume")
-
-	// will allocate resources for volumes one by one
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	neededNodeNumber := int(vol.Spec.ReplicaNumber)
-	if vol.Spec.Config != nil {
-		neededNodeNumber -= len(vol.Spec.Config.Replicas)
-	}
-
-	var selectedNodes []*apisv1alpha1.LocalStorageNode
-	if neededNodeNumber > 0 {
-		nodes, err := s.resourceCollections.getNodeCandidates(vol)
-		if err != nil {
-			logCtx.WithError(err).Error("Failed to get list of avaliable sorted LocalStorageNodes")
-			return nil, err
-		}
-
-		logCtx.WithFields(log.Fields{"needs": neededNodeNumber, "candidates": len(nodes)}).Debug("try to allocate more replica")
-
-		if len(nodes) < neededNodeNumber {
-			logCtx.Error("No enough LocalStorageNodes available for LocalVolume")
-			return nil, fmt.Errorf("no enough avaiable node")
-		}
-		selectedNodes = nodes
-	}
-
-	// for the same volume, will always get the same ID
-	resID, err := s.resourceCollections.getResourceIDForVolume(vol)
-	if err != nil {
-		logCtx.WithError(err).Error("Failed to allocated a resource ID")
-		return nil, err
-	}
-
-	return s.generateConfig(vol, selectedNodes, resID), nil
-}
-
-func (s *scheduler) generateConfig(vol *apisv1alpha1.LocalVolume, nodes []*apisv1alpha1.LocalStorageNode, resID int) *apisv1alpha1.VolumeConfig {
-	conf := &apisv1alpha1.VolumeConfig{
-		Version:     1,
-		VolumeName:  vol.Name,
-		Initialized: false,
-		Replicas:    []apisv1alpha1.VolumeReplica{},
-	}
-	if vol.Spec.Config != nil {
-		conf = vol.Spec.Config.DeepCopy()
-	}
-	conf.ResourceID = resID
-	conf.RequiredCapacityBytes = vol.Spec.RequiredCapacityBytes
-	conf.Convertible = vol.Spec.Convertible
-
-	// for a volume, the ID of the replica shall not > vol.Spec.ReplicaNumber
-	// and always set the first replica to primary
-	freeIDs := make([]int, 0, vol.Spec.ReplicaNumber)
-	usedIDs := make(map[int]bool)
-	for _, replica := range conf.Replicas {
-		usedIDs[replica.ID] = true
-	}
-	for id := 1; id <= int(vol.Spec.ReplicaNumber); id++ {
-		if !usedIDs[id] {
-			freeIDs = append(freeIDs, id)
-		}
-	}
-
-	nodeIDIndex := 0
-	nodeIndex := 0
-	for i := len(conf.Replicas); i < int(vol.Spec.ReplicaNumber); i++ {
-		replica := apisv1alpha1.VolumeReplica{
-			ID:       freeIDs[nodeIDIndex],
-			Hostname: nodes[nodeIndex].Spec.HostName,
-			IP:       nodes[nodeIndex].Spec.StorageIP,
-			Primary:  false,
-		}
-		if len(vol.Spec.Accessibility.Nodes) > 0 && replica.Hostname == vol.Spec.Accessibility.Nodes[0] {
-			replica.Primary = true
-		}
-		conf.Replicas = append(conf.Replicas, replica)
-		nodeIDIndex++
-		nodeIndex++
-	}
-	if len(vol.Spec.Accessibility.Nodes) == 0 && len(conf.Replicas) > 0 {
-		conf.Replicas[0].Primary = true
-	}
-	if len(conf.Replicas) < 2 {
-		// always set to false for non-HA volume
-		conf.Initialized = false
-	}
-
-	return conf
 }

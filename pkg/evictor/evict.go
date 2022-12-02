@@ -31,6 +31,7 @@ const (
 	labelKeyForVolumeEviction            = "hwameistor.io/eviction"
 	labelValueForVolumeEvictionStart     = "start"
 	labelValueForVolumeEvictionCompleted = "completed"
+	labelValueForVolumeEvictionDisable   = "disable"
 )
 
 // Evictor interface
@@ -39,8 +40,6 @@ type Evictor interface {
 }
 
 type evictor struct {
-	//recordManager *evictRecordManager
-
 	clientset *kubernetes.Clientset
 
 	nodeInformer informercorev1.NodeInformer
@@ -49,6 +48,7 @@ type evictor struct {
 	scInformer   informerstoragev1.StorageClassInformer
 
 	lsClientset       *localstorageclientset.Clientset
+	lsnInformer       localstorageinformersv1alpha1.LocalStorageNodeInformer
 	lvInformer        localstorageinformersv1alpha1.LocalVolumeInformer
 	lvrInformer       localstorageinformersv1alpha1.LocalVolumeReplicaInformer
 	lvMigrateInformer localstorageinformersv1alpha1.LocalVolumeMigrateInformer
@@ -67,7 +67,6 @@ type evictor struct {
 // New an assistant instance
 func New(clientset *kubernetes.Clientset) Evictor {
 	return &evictor{
-		//recordManager:    newEvictRecordManager(),
 		clientset:        clientset,
 		evictNodeQueue:   common.NewTaskQueue("EvictNodes", 0),
 		evictPodQueue:    common.NewTaskQueue("EvictPods", 0),
@@ -76,7 +75,6 @@ func New(clientset *kubernetes.Clientset) Evictor {
 }
 
 func (ev *evictor) Run(stopCh <-chan struct{}) error {
-	//ev.recordManager.run(stopCh)
 
 	log.Debug("start informer factory")
 	factory := informers.NewSharedInformerFactory(ev.clientset, 0)
@@ -115,6 +113,9 @@ func (ev *evictor) Run(stopCh <-chan struct{}) error {
 	ev.lvInformer = lsFactory.Hwameistor().V1alpha1().LocalVolumes()
 	go ev.lvInformer.Informer().Run(stopCh)
 
+	ev.lsnInformer = lsFactory.Hwameistor().V1alpha1().LocalStorageNodes()
+	go ev.lsnInformer.Informer().Run(stopCh)
+
 	// index: lvr.spec.nodename
 	lvrNodeNameIndexFunc := func(obj interface{}) ([]string, error) {
 		lvr, ok := obj.(*localstorageapis.LocalVolumeReplica)
@@ -149,8 +150,13 @@ func (ev *evictor) Run(stopCh <-chan struct{}) error {
 
 func (ev *evictor) onNodeAdd(obj interface{}) {
 	node, _ := obj.(*corev1.Node)
-	if node.Labels[labelKeyForVolumeEviction] == labelValueForVolumeEvictionStart {
-		ev.addEvictNode(node.Name)
+	for _, taint := range node.Spec.Taints {
+		if taint.Key == corev1.TaintNodeUnschedulable && taint.Effect == corev1.TaintEffectNoSchedule {
+			if node.Labels[labelKeyForVolumeEviction] != labelValueForVolumeEvictionDisable {
+				ev.addEvictNode(node.Name)
+				return
+			}
+		}
 	}
 }
 
